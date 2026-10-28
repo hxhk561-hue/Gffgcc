@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="th"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no,viewport-fit=cover">
+<title>วิ่งไล่จับ 3D ออนไลน์</title>
+<style>
+*{box-sizing:border-box}html,body{margin:0;height:100%;overflow:hidden;background:#101820;font-family:system-ui,"Noto Sans Thai",sans-serif;color:#fff;touch-action:none;user-select:none}
+canvas{display:block}.hid{display:none!important}
+#hud,#bars,#tc{display:none}
+body.pl #hud{display:flex;position:fixed;top:8px;left:0;right:0;justify-content:center;gap:8px;pointer-events:none;font-weight:700;font-size:14px}
+#hud div{background:#0008;padding:5px 12px;border-radius:18px}
+body.pl #bars{display:block;position:fixed;left:50%;bottom:12px;transform:translateX(-50%);width:200px;height:12px;background:#0006;border-radius:6px;overflow:hidden}
+#st{height:100%;width:100%;background:#ffd23f}
+body.pl.t #tc{display:block}
+#joy{position:fixed;left:28px;bottom:28px;width:110px;height:110px;border-radius:50%;background:#fff2;border:2px solid #fff4}
+#joy i{position:absolute;left:35px;top:35px;width:40px;height:40px;border-radius:50%;background:#fff6}
+.cb{position:fixed;border-radius:50%;border:0;font-weight:700;color:#000}
+#jmp{right:28px;bottom:36px;width:92px;height:92px;background:#5cf0a0aa}
+#spr{right:134px;bottom:30px;width:72px;height:72px;background:#ffd23faa}
+#lob{position:fixed;inset:0 28% 0 0;display:flex;gap:8px;padding:8px;background:#0b1220d0}
+.p{flex:1;background:#fff1;border-radius:12px;padding:10px;overflow:auto;font-size:13px;display:flex;flex-direction:column;gap:6px}
+.b,.p button{background:#ff5a5f;color:#fff;border:0;border-radius:14px;padding:6px 10px;font-weight:700;cursor:pointer;margin:1px}
+.p input{background:#fff2;border:1px solid #fff4;border-radius:8px;color:#fff;padding:5px;max-width:100%}
+.sw{width:26px;height:26px;border-radius:50%;border:2px solid #fff6;display:inline-block;margin:2px;cursor:pointer}
+.r{display:flex;align-items:center;gap:4px;background:#fff1;border-radius:8px;padding:3px 6px}
+#end{position:fixed;inset:0;background:#000b;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;font-size:20px;font-weight:700}
+#rot{position:fixed;inset:0;background:#101820;z-index:9;display:none;align-items:center;justify-content:center;font-size:20px;text-align:center}
+@media(orientation:portrait){#rot{display:flex}}
+</style></head><body>
+<div id="rot">📱↻ กรุณาหมุนจอเป็นแนวนอน</div>
+<div id="hud"><div id="rl"></div><div id="sc"></div><div>⏱ <span id="tm">60</span></div></div>
+<div id="bars"><div id="st"></div></div>
+<div id="tc"><div id="joy"><i></i></div><button id="spr" class="cb">วิ่ง</button><button id="jmp" class="cb">กระโดด</button></div>
+<div id="lob">
+<div class="p"><b>🎨 แต่งตัว</b><input id="nm" maxlength="12"><div id="sw"></div><div id="ht"></div><button onclick="fs()">⛶ เต็มจอ</button></div>
+<div class="p"><b>🌐 ออนไลน์</b>
+<div>รหัสฉัน: <b id="my"></b> <button onclick="navigator.clipboard&&navigator.clipboard.writeText(code)">คัดลอก</button></div>
+<div><input id="jc" placeholder="รหัสห้อง" size="8"><button onclick="jn($('jc').value.trim().toLowerCase())">เข้าร่วม</button></div>
+<div><input id="fn" placeholder="ชื่อ" size="6"><input id="fc" placeholder="รหัสเพื่อน" size="8"><button onclick="addF()">+เพื่อน</button><button onclick="pingAll()">↻</button></div>
+<div id="fl"></div><button id="mic" onclick="mic()">🎤 เปิดไมค์</button><div id="sm" style="opacity:.8"></div></div>
+<div class="p"><b>🏟 ห้อง 2v2</b><div id="md"></div><div id="rc" style="text-align:center;font-weight:700;background:#fff2;border-radius:10px;padding:8px"></div><div id="rm"></div><small>ช่องว่างจะเติมบอทอัตโนมัติ · บทบาทสลับทุกรอบ</small>
+<button id="sg" onclick="startGame()">▶ เริ่มเกม</button><button id="lv" class="hid" onclick="leave()">ออกจากห้อง</button></div>
+</div>
+<div id="end" class="hid"></div>
+<script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+const $=i=>document.getElementById(i),ls=localStorage,A=30;
+const esc=s=>String(s).replace(/[&<>"']/g,c=>'&#'+c.charCodeAt(0)+';');
+const COLS=[0x2f6bff,0xff3b3b,0x2ecc71,0xf1c40f,0xa569bd,0xff8c42,0x1abc9c,0xec407a];
+const HATS=['ไม่มี','แก๊ป','มงกุฎ','กรวย','เขา'];
+const san=d=>({name:String(d.name||'ผู้เล่น').slice(0,12),col:(d.col|0)&7,hat:Math.min(4,Math.max(0,d.hat|0))});
+let me=san({name:ls.n||'ผู้เล่น'+(Math.random()*99|0),col:+ls.c||0,hat:+ls.h||0});
+let code=ls.id||Math.random().toString(36).slice(2,8);ls.id=code;
+let net={peer:null,conns:{},host:null,mode:'host'},slots=[],mySlot=0,ph='lobby',G=[],meshes=[],T=[],swap=0,tm=60,pv=null,ms=null,mo=0,cl={},au={},gm='2v2',NP=4;
+// ---------- 3D ----------
+const R=new THREE.WebGLRenderer({antialias:true});R.setPixelRatio(Math.min(devicePixelRatio,2));R.setSize(innerWidth,innerHeight);R.shadowMap.enabled=true;document.body.prepend(R.domElement);
+const S=new THREE.Scene();S.background=new THREE.Color(0x8fd3ff);S.fog=new THREE.Fog(0x8fd3ff,25,75);
+const C=new THREE.PerspectiveCamera(60,innerWidth/innerHeight,.1,200);
+addEventListener('resize',()=>{R.setSize(innerWidth,innerHeight);C.aspect=innerWidth/innerHeight;C.updateProjectionMatrix()});
+S.add(new THREE.HemisphereLight(0xffffff,0x446644,.8));
+const sun=new THREE.DirectionalLight(0xffffff,.8);sun.position.set(15,30,10);sun.castShadow=true;
+Object.assign(sun.shadow.camera,{left:-35,right:35,top:35,bottom:-35});S.add(sun);
+const gr=new THREE.Mesh(new THREE.PlaneGeometry(A*2,A*2),new THREE.MeshLambertMaterial({color:0x5cb85c}));gr.rotation.x=-Math.PI/2;gr.receiveShadow=true;S.add(gr);
+const gd=new THREE.GridHelper(A*2,30,0x4aa04a,0x4aa04a);gd.position.y=.01;S.add(gd);
+const wm=new THREE.MeshLambertMaterial({color:0x8a6d3b});
+[[0,-A,A*2,1],[0,A,A*2,1],[-A,0,1,A*2],[A,0,1,A*2]].forEach(([x,z,w,d])=>{const m=new THREE.Mesh(new THREE.BoxGeometry(w,2,d),wm);m.position.set(x,1,z);S.add(m)});
+let mapG,obs=[];
+const rng=s=>()=>(s=(s*16807)%2147483647)/2147483647;
+function buildMap(seed){
+ if(mapG)S.remove(mapG);mapG=new THREE.Group();obs=[];const r=rng(seed);
+ for(let i=0;i<24;i++){
+  const rd=.9+r()*1.5,x=(r()*2-1)*(A-5),z=(r()*2-1)*(A-5),h=.8+r()*3.5,bx=r()<.5,col=r();
+  if(Math.hypot(x,z)<6)continue;
+  const m=new THREE.Mesh(bx?new THREE.BoxGeometry(rd*2,h,rd*2):new THREE.CylinderGeometry(rd,rd,h,16),new THREE.MeshLambertMaterial({color:new THREE.Color().setHSL(col,.4,.55)}));
+  m.position.set(x,h/2,z);m.castShadow=m.receiveShadow=true;mapG.add(m);obs.push({x,z,r:rd*(bx?1.15:1),h});
+ }
+ S.add(mapG);
+}
+buildMap(1);
+function mkChar(c){
+ const g=new THREE.Group(),M=x=>new THREE.MeshLambertMaterial({color:x,side:2}),m=M(COLS[c.col]),dk=M(new THREE.Color(COLS[c.col]).multiplyScalar(.55)),sk=M(0xffe0bd),bk=M(0x1a1a22);
+ const rig=new THREE.Group();g.add(rig);g.rig=rig;
+ const mesh=(geo,mat,x,y,z,p)=>{const o=new THREE.Mesh(geo,mat);o.position.set(x,y,z);o.castShadow=true;p.add(o);return o};
+ const limb=(P,x,y,len,w,mat,tip)=>{const p=new THREE.Group();p.position.set(x,y,0);mesh(new THREE.BoxGeometry(w,len,w),mat,0,-len/2+.05,0,p);mesh(new THREE.BoxGeometry(w+.03,.2,w+.12),tip,0,-len+.02,.03,p);P.add(p);return p};
+ g.lL=limb(rig,-.17,.85,.85,.25,dk,bk);g.lR=limb(rig,.17,.85,.85,.25,dk,bk);
+ const body=new THREE.Group();body.position.y=.85;rig.add(body);g.body=body;
+ mesh(new THREE.BoxGeometry(.72,.78,.42),m,0,.4,0,body);
+ mesh(new THREE.BoxGeometry(.74,.12,.44),bk,0,.06,0,body);
+ mesh(new THREE.SphereGeometry(.33,16,12),sk,0,1.12,0,body);
+ mesh(new THREE.BoxGeometry(.5,.12,.1),bk,0,1.16,.29,body);
+ g.aL=limb(body,-.47,.72,.75,.2,m,sk);g.aR=limb(body,.47,.72,.75,.2,m,sk);
+ const cp=new THREE.Group();cp.position.set(0,.74,-.23);mesh(new THREE.PlaneGeometry(.62,.95),dk,0,-.47,0,cp);body.add(cp);g.cape=cp;
+ const hm=M([0,0,0xffd700,0xff9f1c,0xeeeeee][c.hat]||0x333333);
+ if(c.hat==1){mesh(new THREE.CylinderGeometry(.35,.35,.16,14),m,0,1.45,0,body);mesh(new THREE.BoxGeometry(.42,.04,.3),m,0,1.4,.36,body)}
+ if(c.hat==2)mesh(new THREE.CylinderGeometry(.38,.28,.3,6),hm,0,1.58,0,body);
+ if(c.hat==3)mesh(new THREE.ConeGeometry(.28,.65,12),hm,0,1.75,0,body);
+ if(c.hat==4)[-1,1].forEach(s=>{const k=mesh(new THREE.ConeGeometry(.1,.45,8),hm,s*.27,1.55,0,body);k.rotation.z=-s*.5});
+ const ring=new THREE.Mesh(new THREE.RingGeometry(.6,.85,24),new THREE.MeshBasicMaterial({color:0x2f6bff,side:2}));ring.rotation.x=-Math.PI/2;ring.position.y=.04;g.add(ring);g.ring=ring;
+ const cv=document.createElement('canvas');cv.width=256;cv.height=64;const x=cv.getContext('2d');x.font='bold 34px sans-serif';x.textAlign='center';x.fillStyle='#fff';x.strokeStyle='#000';x.lineWidth=6;x.strokeText(c.name,128,44);x.fillText(c.name,128,44);
+ const sp=new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(cv),depthTest:false}));sp.scale.set(2.4,.6,1);sp.position.y=3.1;g.add(sp);
+ return g;
+}
+function anim(g,sp,air,vy,dead,t,dt){
+ const k=1-Math.exp(-dt*16),L=(o,p,v)=>{o.rotation[p]+=(v-o.rotation[p])*k};
+ g.ph=(g.ph||0)+dt*(sp>.5?5+sp*1.15:0);
+ const run=Math.min(sp/7,1.4),a=run*.85,s=Math.sin(g.ph),f=Math.min(sp/10,1);
+ let lL=s*a,lR=-s*a,aL=-s*a*1.1,aR=s*a*1.1,zL=-.06,zR=.06,bx=f*.38,by=.85+Math.abs(Math.cos(g.ph))*.09*run+Math.sin(t*2)*.012,cp=.12+f*.95+Math.sin(t*10+g.ph)*.07*run;
+ if(sp<.5){aL=Math.sin(t*2)*.05;aR=-aL;zL=-.1;zR=.1}
+ if(air){const up=vy>0;aL=aR=up?-2.7:-.5;zL=up?-.35:-1.2;zR=-zL;lL=up?.9:.3;lR=up?-.5:-.2;bx=up?.15:.05;cp=up?.2:1.3}
+ if(dead){lL=.15;lR=-.1;aL=-.3;aR=.2;zL=-.6;zR=.6;bx=0;cp=.1;by=.85}
+ L(g.lL,'x',lL);L(g.lR,'x',lR);L(g.aL,'x',aL);L(g.aR,'x',aR);L(g.aL,'z',zL);L(g.aR,'z',zR);L(g.body,'x',bx);L(g.cape,'x',cp);
+ g.body.position.y+=(by-g.body.position.y)*k;
+ L(g.rig,'x',dead?-1.5:0);g.rig.position.y+=((dead?.32:0)-g.rig.position.y)*k;
+}
+const dust=[];let di=0;
+for(let i=0;i<40;i++){const d=new THREE.Mesh(new THREE.SphereGeometry(.18,6,6),new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:0,depthWrite:false}));d.visible=false;d.life=0;S.add(d);dust.push(d)}
+function puff(x,y,z){const d=dust[di++%40];d.position.set(x+(Math.random()-.5)*.4,y+.1,z+(Math.random()-.5)*.4);d.life=.45;d.visible=true}
+function dustStep(dt){dust.forEach(d=>{if(!d.visible)return;d.life-=dt;if(d.life<=0){d.visible=false;return}const f=d.life/.45;d.scale.setScalar(1+(1-f)*2.2);d.material.opacity=f*.45})}
+function setPreview(){if(pv)S.remove(pv);pv=mkChar(me);pv.position.set(1.8,0,0);S.add(pv)}
+// ---------- UI ----------
+function status(t){$('sm').textContent=t}
+$('my').textContent=code;$('nm').value=me.name;
+function drawCos(){
+ $('sw').innerHTML=COLS.map((c,i)=>`<span class="sw" style="background:#${c.toString(16).padStart(6,'0')};${me.col==i?'border-color:#fff':''}" onclick="ch('col',${i})"></span>`).join('');
+ $('ht').innerHTML=HATS.map((h,i)=>`<button style="${me.hat==i?'background:#2f6bff':''}" onclick="ch('hat',${i})">${h}</button>`).join('');
+}
+$('nm').onchange=e=>{me.name=e.target.value.trim().slice(0,12)||'ผู้เล่น';cos()};
+function ch(k,v){me[k]=v;cos()}
+function cos(){
+ ls.n=me.name;ls.c=me.col;ls.h=me.hat;drawCos();
+ if(net.mode==='host'){slots[0]={pid:code,...me};bl()}else if(net.host&&net.host.open)net.host.send({t:'cos',...me});
+ setPreview();renderLobby();
+}
+function renderLobby(){
+ const hc=net.mode==='host'?code:(slots[0]&&slots[0].pid?slots[0].pid.slice(4):'—');
+ $('rc').innerHTML='🔑 รหัสห้อง<br><span style="font-size:30px;letter-spacing:4px">'+hc+'</span><br><button onclick="navigator.clipboard&&navigator.clipboard.writeText(\''+hc+'\')">คัดลอก</button>';
+ $('md').innerHTML=net.mode==='host'?['2v2','1v1'].map(m=>`<button style="${gm==m?'background:#2f6bff':''}" onclick="setMode('${m}')">${m}</button>`).join(''):'โหมด '+gm;
+ $('rm').innerHTML=[...Array(gm==='1v1'?2:4).keys()].map(i=>{const s=slots[i];return `<div class="r"><b>${i&1?'B':'A'}</b> ${s?esc(s.name)+' · '+HATS[s.hat]:'🤖 บอท'}${s&&s.pid&&s.pid!==code&&!fr.some(f=>f.c==s.pid.slice(4))?` <button onclick="addF('${s.pid.slice(4)}','${esc(s.name)}')">+เพื่อน</button>`:''}</div>`}).join('');
+ const h=net.mode==='host';$('sg').classList.toggle('hid',!h);$('lv').classList.toggle('hid',h);
+}
+let fr=JSON.parse(ls.f||'[]');
+function drawFr(){$('fl').innerHTML=fr.map((f,i)=>`<div class="r"><span id="d${i}">⚪</span> ${esc(f.n)} <small>${f.c}</small><button onclick="jn('${f.c}')">เข้าร่วม</button><button onclick="rmF(${i})">✕</button></div>`).join('')||'<small>ยังไม่มีเพื่อน</small>'}
+function addF(c,n){c=(c||$('fc').value).trim().toLowerCase();n=n||$('fn').value.trim()||c;if(!/^[a-z0-9]{4,12}$/.test(c)||c==code)return;fr.push({n:n.slice(0,12),c});ls.f=JSON.stringify(fr);$('fc').value=$('fn').value='';drawFr();renderLobby();pingAll()}
+function rmF(i){fr.splice(i,1);ls.f=JSON.stringify(fr);drawFr();renderLobby()}
+function pingAll(){
+ if(!net.peer||!net.peer.open)return;
+ fr.forEach((f,i)=>{let ok=0;const c=net.peer.connect('c3d-'+f.c),d=$('d'+i);
+  c.on('open',()=>c.send({t:'join',ping:1}));
+  c.on('data',m=>{if(m.t==='pong'){ok=1;d&&(d.textContent=m.busy?'🟡':'🟢');c.close()}});
+  setTimeout(()=>{if(!ok){d&&(d.textContent='⚫');c.close()}},4000)});
+}
+function fs(){try{const e=document.documentElement;(e.requestFullscreen||e.webkitRequestFullscreen).call(e).catch(()=>{});screen.orientation&&screen.orientation.lock&&screen.orientation.lock('landscape').catch(()=>{})}catch(e){}}
+// ---------- voice ----------
+function playAudio(id,s){const a=au[id]||(au[id]=new Audio());a.srcObject=s;a.play().catch(()=>{})}
+function callAll(){if(!ms)return;slots.forEach(s=>{if(s&&s.pid&&s.pid!==code&&!cl[s.pid]){cl[s.pid]=1;net.peer.call(s.pid,ms).on('stream',st=>playAudio(s.pid,st))}})}
+async function mic(){
+ try{if(!ms){ms=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true}});mo=1;cl={};callAll()}
+ else{mo=!mo;ms.getAudioTracks()[0].enabled=!!mo}
+ $('mic').textContent=mo?'🎤 ไมค์เปิด':'🔇 ไมค์ปิด'}catch(e){status('เปิดไมค์ไม่ได้ (ต้องใช้ https + อนุญาตสิทธิ์)')}
+}
+// ---------- network ----------
+function initPeer(){
+ const p=net.peer=new Peer('c3d-'+code);
+ p.on('open',()=>{status('ออนไลน์แล้ว ✓');pingAll()});
+ p.on('error',e=>{if(e.type==='unavailable-id'){p.destroy();code=Math.random().toString(36).slice(2,8);ls.id=code;$('my').textContent=code;slots[0]={pid:code,...me};initPeer()}else if(e.type!=='peer-unavailable')status('เชื่อมต่อผิดพลาด: '+e.type)});
+ p.on('connection',c=>{c.on('data',d=>onHost(c,d));c.on('close',()=>drop(c))});
+ p.on('call',cl2=>{cl2.answer(ms||undefined);cl2.on('stream',s=>playAudio(cl2.peer,s))});
+}
+const bc=m=>Object.values(net.conns).forEach(c=>c.open&&c.send(m));
+function bl(back){Object.entries(net.conns).forEach(([pid,c])=>c.open&&c.send({t:'lobby',slots,you:slots.findIndex(s=>s&&s.pid===pid),back,gm}));renderLobby();callAll()}
+function onHost(c,d){
+ if(d.t==='join'){
+  const busy=net.mode!=='host'||ph!=='lobby'||slots.filter(Boolean).length>=(gm==='1v1'?2:4);
+  if(d.ping){c.send({t:'pong',busy});setTimeout(()=>c.close(),600);return}
+  if(busy){c.send({t:'busy'});setTimeout(()=>c.close(),600);return}
+  let i=0;while(slots[i])i++;net.conns[c.peer]=c;slots[i]={pid:c.peer,...san(d)};bl();
+ }else if(d.t==='cos'){const i=slots.findIndex(s=>s&&s.pid===c.peer);if(i>=0){slots[i]={pid:c.peer,...san(d)};bl()}}
+ else if(d.t==='in'){const p=G[slots.findIndex(s=>s&&s.pid===c.peer)];if(p&&!p.bot){p.in.x=+d.x||0;p.in.z=+d.z||0;p.in.s=d.s?1:0;if(d.j)p.in.j=1}}
+}
+function drop(c){delete net.conns[c.peer];delete cl[c.peer];const i=slots.findIndex(s=>s&&s.pid===c.peer);if(i>=0){slots[i]=null;if(ph==='play'&&G[i])G[i].bot=true;bl()}}
+function jn(c){
+ if(!c||c===code||!net.peer)return;
+ if(net.mode==='client'||slots.filter(Boolean).length>1){status('ออกจากห้องปัจจุบันก่อน');return}
+ fs();status('กำลังเชื่อมต่อ…');const h=net.peer.connect('c3d-'+c);let ok=0;
+ h.on('open',()=>h.send({t:'join',...me}));
+ h.on('data',d=>{ok=1;onClient(h,d)});
+ h.on('close',()=>{if(net.host===h)hostLost()});
+ setTimeout(()=>{if(!ok){status('ไม่พบห้อง (เพื่อนต้องเปิดเกมอยู่)');h.close()}},6000);
+}
+function onClient(h,d){
+ if(d.t==='busy'){status('ห้องเต็มหรือกำลังเล่นอยู่');return}
+ if(d.t==='lobby'){net.mode='client';net.host=h;cl={};if(ph!=='play'){slots=d.slots;mySlot=d.you;gm=d.gm||'2v2';status('อยู่ในห้องแล้ว');if(d.back)toLobby();renderLobby()}callAll()}
+ if(d.t==='start')setup(d.seed,d.swap,d.slots);
+ if(d.t==='st')applySt(d.p,d.tm);
+ if(d.t==='end')showEnd(d.cw);
+}
+function hostLost(){net.mode='host';net.host=null;slots=[{pid:code,...me}];mySlot=0;G=[];status('หลุดจากห้อง');toLobby()}
+function leave(){if(net.host)net.host.close();hostLost()}
+function toLobby(){document.exitPointerLock&&document.exitPointerLock();ph='lobby';document.body.classList.remove('pl');$('lob').classList.remove('hid');$('end').classList.add('hid');setPreview();renderLobby()}
+// ---------- game ----------
+function setup(seed,sw,sl){
+ buildMap(seed);swap=sw;if(pv){S.remove(pv);pv=null}
+ meshes.forEach(m=>S.remove(m));
+ meshes=sl.map((s,i)=>{const m=mkChar(s);m.role=(i&1)^swap;m.ring.material.color.set(m.role?0xff3b3b:0x2f6bff);S.add(m);return m});
+ {const r=(mySlot&1)^sw,k=mySlot>>1,px=r?(k?20:-20):(k?3:-3),pz=r?(k?-20:20):0;cy=Math.atan2(px,pz);cp=.4}
+ NP=sl.length;T=[];ph='play';tm=60;document.body.classList.add('pl');$('lob').classList.add('hid');$('end').classList.add('hid');
+ $('rl').textContent=((mySlot&1)^swap)?'🏃 คุณคือผู้หนี':'🕵️ คุณคือผู้ไล่ (แตะตัวผู้หนี)';$('rl').textContent+=' · ลากเมาส์/นิ้วเพื่อหมุนกล้อง';
+}
+function setMode(m){if(net.mode!=='host'||ph!=='lobby')return;if(slots.filter(Boolean).length>(m==='1v1'?2:4)){status('มีผู้เล่นเกินโหมดนี้');return}gm=m;slots=slots.filter(Boolean);bl()}
+function startGame(){
+ if(net.mode!=='host')return;fs();
+ const sl=[...Array(gm==='1v1'?2:4).keys()].map(i=>slots[i]||{name:'บอท'+(i+1),col:(i*3+1)&7,hat:i%5,bot:1});
+ G=sl.map((s,i)=>{const role=(i&1)^swap,k=i>>1;return{bot:!!s.bot,in:{x:0,z:0,s:0,j:0},x:role?(k?20:-20):(k?3:-3),z:role?(k?-20:20):0,y:0,vy:0,gy:0,ry:0,caught:0,stam:1,exh:0}});
+ const seed=(Math.random()*1e6|0)+1;mySlot=0;
+ bc({t:'start',seed,swap,slots:sl});setup(seed,swap,sl);
+}
+function bot(p,i,role){
+ let b=null,bd=1e9;
+ G.forEach((q,j)=>{if(j===i||q.caught||((j&1)^swap)===role)return;const d=Math.hypot(q.x-p.x,q.z-p.z);if(d<bd){bd=d;b=q}});
+ if(!b)return{x:0,z:0,s:0,j:0};
+ const k=role?-1:1,L=bd||1;let vx=k*(b.x-p.x)/L,vz=k*(b.z-p.z)/L;
+ if(role){if(bd>18)return{x:0,z:0,s:0,j:0};
+  if(Math.hypot(p.x,p.z)/A>.6){vx-=p.x/A*2;vz-=p.z/A*2}
+  for(const o of obs){const ox=o.x-p.x,oz=o.z-p.z,od=Math.hypot(ox,oz);if(od<o.r+2.5){vx+=-oz/od;vz+=ox/od}}}
+ return{x:vx,z:vz,s:bd<9&&p.stam>.3?1:0,j:Math.random()<.004?1:0};
+}
+function step(dt){
+ G.forEach((p,i)=>{
+  if(p.caught)return;
+  const role=(i&1)^swap,I=p.bot?bot(p,i,role):p.in;
+  let ix=I.x,iz=I.z;const l=Math.hypot(ix,iz);if(l>1){ix/=l;iz/=l}
+  let sp=role?6.2:6.5;
+  if(I.s&&l>.1&&!p.exh&&p.stam>0){sp=10;p.stam-=dt*.4;if(p.stam<=0){p.stam=0;p.exh=1}}
+  else{p.stam=Math.min(1,p.stam+dt*(l>.1?.12:.3));if(p.exh&&p.stam>.25)p.exh=0}
+  if(I.j&&p.y<=p.gy+.05&&p.stam>.1&&!p.exh){p.vy=9;p.stam-=.1}
+  if(!p.bot)I.j=0;
+  p.x+=ix*sp*dt;p.z+=iz*sp*dt;if(l>.1)p.ry=Math.atan2(ix,iz);
+  let gy=0;
+  for(const o of obs){const dx=p.x-o.x,dz=p.z-o.z,d=Math.hypot(dx,dz),m=o.r+.5;
+   if(d<m){if(p.y>=o.h-.25)gy=Math.max(gy,o.h);else if(d>0){p.x=o.x+dx/d*m;p.z=o.z+dz/d*m}}}
+  const Lm=A-1.5;p.x=Math.max(-Lm,Math.min(Lm,p.x));p.z=Math.max(-Lm,Math.min(Lm,p.z));
+  p.vy-=24*dt;p.y+=p.vy*dt;if(p.y<=gy){p.y=gy;p.vy=0}p.gy=gy;
+ });
+ G.forEach((c,i)=>{if((i&1)^swap)return;G.forEach((r,j)=>{if(!((j&1)^swap)||r.caught)return;
+  if(Math.hypot(c.x-r.x,c.z-r.z)<1.2&&Math.abs(c.y-r.y)<1.3)r.caught=1})});
+ tm-=dt;
+ const rs=G.filter((p,i)=>(i&1)^swap);
+ if(rs.every(p=>p.caught))fin(1);else if(tm<=0){tm=0;fin(0)}
+}
+function fin(cw){ph='end';bc({t:'end',cw});showEnd(cw)}
+function showEnd(cw){document.exitPointerLock&&document.exitPointerLock();
+ ph='end';const win=cw?swap:swap^1,ok=(mySlot&1)===win,h=net.mode==='host';
+ $('end').innerHTML=`<div>${cw?'จับครบแล้ว!':'หมดเวลา!'} ${ok?'🎉 ทีมคุณชนะ':'😢 ทีมคุณแพ้'}</div>`+(h?'<div><button class="b" onclick="swap^=1;startGame()">รอบต่อไป (สลับบทบาท)</button><button class="b" onclick="toLobby();bl(1)">กลับล็อบบี้</button></div>':'<small>รอเจ้าห้อง…</small>');
+ $('end').classList.remove('hid');
+}
+const snap=()=>G.map(q=>[+q.x.toFixed(2),+q.y.toFixed(2),+q.z.toFixed(2),+q.ry.toFixed(2),q.caught,+q.stam.toFixed(2)]);
+function applySt(a,t){T=a;tm=t;
+ const n=a.filter((q,i)=>((i&1)^swap)&&q[4]).length;$('sc').textContent='จับได้ '+n+'/'+NP/2;$('tm').textContent=Math.ceil(tm);
+ const s=a[mySlot]?a[mySlot][5]:1;$('st').style.width=s*100+'%';$('st').style.background=s<.2?'#ff5a5f':'#ffd23f';}
+// ---------- input ----------
+const K={};let jf=0,sb=0,jv={x:0,z:0},cy=0,cp=.4;
+addEventListener('keydown',e=>{K[e.code]=1;if(e.code==='Space'){jf=1;e.preventDefault()}});
+addEventListener('keyup',e=>K[e.code]=0);
+const inp=()=>{const ix=(K.KeyD||K.ArrowRight?1:0)-(K.KeyA||K.ArrowLeft?1:0)+jv.x,iz=(K.KeyS||K.ArrowDown?1:0)-(K.KeyW||K.ArrowUp?1:0)+jv.z,c=Math.cos(cy),s=Math.sin(cy);return{x:ix*c+iz*s,z:-ix*s+iz*c,s:K.ShiftLeft||K.ShiftRight||sb?1:0}};
+if('ontouchstart' in window)document.body.classList.add('t');
+const joy=$('joy'),kn=joy.firstElementChild;
+joy.addEventListener('touchmove',e=>{e.preventDefault();const t=e.targetTouches[0],r=joy.getBoundingClientRect();
+ let dx=(t.clientX-r.left-55)/45,dz=(t.clientY-r.top-55)/45,l=Math.hypot(dx,dz);if(l>1){dx/=l;dz/=l}jv={x:dx,z:dz};kn.style.transform=`translate(${dx*30}px,${dz*30}px)`},{passive:false});
+joy.addEventListener('touchend',()=>{jv={x:0,z:0};kn.style.transform=''});
+$('jmp').addEventListener('touchstart',e=>{e.preventDefault();jf=1},{passive:false});
+$('spr').addEventListener('touchstart',e=>{e.preventDefault();sb=1},{passive:false});
+$('spr').addEventListener('touchend',()=>sb=0);
+const look=(dx,dy)=>{cy-=dx*.005;cp=Math.max(.05,Math.min(1.35,cp+dy*.005))};
+const cvs=R.domElement;let md=0,lt=null;
+cvs.addEventListener('click',()=>{if(ph==='play'&&!('ontouchstart' in window)){try{cvs.requestPointerLock()}catch(e){}}});
+cvs.addEventListener('mousedown',()=>md=1);addEventListener('mouseup',()=>md=0);
+addEventListener('mousemove',e=>{if(ph==='play'&&(document.pointerLockElement||md))look(e.movementX,e.movementY)});
+cvs.addEventListener('touchstart',e=>{if(!lt){const t=e.changedTouches[0];lt={id:t.identifier,x:t.clientX,y:t.clientY}}},{passive:true});
+cvs.addEventListener('touchmove',e=>{if(!lt)return;for(const t of e.changedTouches)if(t.identifier===lt.id){if(ph==='play')look(t.clientX-lt.x,t.clientY-lt.y);lt.x=t.clientX;lt.y=t.clientY}},{passive:true});
+cvs.addEventListener('touchend',e=>{for(const t of e.changedTouches)if(lt&&t.identifier===lt.id)lt=null});
+cvs.addEventListener('touchcancel',()=>lt=null);
+// ---------- loop ----------
+let last=performance.now(),tick=0,ni=0;const ct=new THREE.Vector3();let camD=7;
+function loop(now){
+ requestAnimationFrame(loop);const dt=Math.min((now-last)/1000,.05);last=now;
+ if(ph==='play'||ph==='end'){
+  if(ph==='play'){const I=inp();
+   if(net.mode==='host'){const p=G[0];p.in.x=I.x;p.in.z=I.z;p.in.s=I.s;if(jf)p.in.j=1;jf=0;step(dt);const s=snap();applySt(s,tm);if(++tick%3==0)bc({t:'st',p:s,tm:+tm.toFixed(1)})}
+   else if(now-ni>50){ni=now;net.host&&net.host.open&&net.host.send({t:'in',x:I.x,z:I.z,s:I.s,j:jf});jf=0}}
+  meshes.forEach((m,i)=>{const t=T[i];if(!t)return;
+   if(!m.u){m.position.set(t[0],t[1],t[2]);m.rotation.y=t[3];m.u=1}
+   const ox=m.position.x,oy=m.position.y,oz=m.position.z;m.position.x+=(t[0]-m.position.x)*.35;m.position.y+=(t[1]-m.position.y)*.5;m.position.z+=(t[2]-m.position.z)*.35;const dd=Math.max(dt,.001);m.sp=(m.sp||0)+(Math.hypot(m.position.x-ox,m.position.z-oz)/dd-(m.sp||0))*.15;m.vy=(m.vy||0)+((m.position.y-oy)/dd-(m.vy||0))*.4;
+   m.rotation.y+=(((t[3]-m.rotation.y+9.4248)%6.2832)-3.1416)*.3;
+   const air=Math.abs(m.vy)>2;anim(m,m.sp,air,m.vy,t[4],now/1000,dt);m.ring.material.color.set(t[4]?0x666666:m.role?0xff3b3b:0x2f6bff);if(m.sp>8&&!t[4]&&!air&&Math.random()<.25)puff(m.position.x,m.position.y,m.position.z)});
+  const m=meshes[mySlot];
+  if(m){const hx=m.position.x,hy=m.position.y+1.7,hz=m.position.z,L=A-1.2,cc=Math.cos(cp),dx=Math.sin(cy)*cc,dy=Math.sin(cp),dz=Math.cos(cy)*cc;
+   let dd=7;
+   if(dx>.001)dd=Math.min(dd,(L-hx)/dx);if(dx<-.001)dd=Math.min(dd,(-L-hx)/dx);
+   if(dz>.001)dd=Math.min(dd,(L-hz)/dz);if(dz<-.001)dd=Math.min(dd,(-L-hz)/dz);
+   for(let q=1;q<=dd;q+=.5){const px=hx+dx*q,py=hy+dy*q,pz=hz+dz*q;if(obs.some(o=>py<o.h+.3&&Math.hypot(px-o.x,pz-o.z)<o.r+.3)){dd=q-.5;break}}
+   dd=Math.max(1.8,dd);camD+=(dd-camD)*(dd<camD?.6:.08);
+   C.position.set(hx+dx*camD,Math.max(.4,hy+dy*camD),hz+dz*camD);C.lookAt(hx,hy,hz)}
+ }else{if(pv){pv.rotation.y+=dt;anim(pv,Math.sin(now/2500)>.2?7:0,0,0,0,now/1000,dt)}C.position.set(0,2,5.5);C.lookAt(0,1.1,0)}
+ dustStep(dt);R.render(S,C);
+}
+slots=[{pid:code,...me}];drawCos();drawFr();try{initPeer()}catch(e){status('โหลดระบบออนไลน์ไม่ได้ (ต้องต่ออินเทอร์เน็ต)')}toLobby();
+requestAnimationFrame(loop);
+</script></body></html>
